@@ -16,12 +16,12 @@ per the Vertical Integration Law.
 
 ## Layout
 - Store (future): `src/` — `Database` interface, native vex backend.
-- Tests: umbrella `tests/` has no `darkbase/` partition yet; until then keep
-  seam tests in-repo under `tests/` (never inside source dirs, per the Test
+- Tests: umbrella `../../../tests` has no `darkbase/` partition yet; until then keep
+  seam tests in-repo under `../../../tests` (never inside source dirs, per the Test
   Segregation Law).
 
 ## Laws that govern work here
-- Constitution: `../../preferences.md` (umbrella symlink → `ecosystem/vexspoke/preferences.md`).
+- Constitution: `../../../preferences.md` (umbrella symlink → `../../vexspoke/preferences.md`).
 - Commits land in THIS repo root, one cohesive unit each; never push unless asked.
 - One public class per `.h`/`.c` pair, `(*ptr).field` (never `->`), dest-last
   params, `-Wall -Wextra -Werror`.

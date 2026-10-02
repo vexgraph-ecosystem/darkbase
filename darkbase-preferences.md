@@ -1,15 +1,15 @@
 # darkbase — Repo-Local Living Preferences
-> Exclusive repository-level preferences (the Living Preferences Law).
+> Repo-local preferences governed by the Living Documentation Law.
 > Universal Supreme Constitution: preferences.md (vexspoke).
-
-;;SYNC("mirrors ecosystem/vexspoke/preferences.md @ 2026.09-universal")
 
 ## 0. Constitution Link (supreme)
 - [preferences.md](https://github.com/vexgraph-dev/vexspoke/blob/main/preferences.md) (canonical, vexspoke) — accessible locally at ../../preferences.md
-- All universal laws in `preferences.md` are mandatory and binding across the ecosystem.
+- All universal laws in `../../../preferences.md` are mandatory and binding across the ecosystem.
 - This document codifies **exclusive** preferences that apply uniquely to `darkbase` (R3 Database Driver).
 
-## 1. Exclusive Preferences Binding Matrix
+## 1. Repo-Local Law Index (Binding Matrix)
+
+Universal laws are inherited from the canonical `../../../preferences.md` Index; this table indexes the additional laws specific to this repository.
 
 | Law Title | Scope | Enforcement |
 | :--- | :--- | :--- |
@@ -52,6 +52,6 @@ Predictable index geometry guarantees bounded traversal depth and prevents fragm
 
 ---
 
-## 4. Readiness Cross-Reference (the Living Feature Readiness Law)
+## 4. Readiness Cross-Reference (Living Documentation Law)
 
 - Feature readiness matrix tracked in [`../../_repositories/.ecosystem/darkbase.md`](../../_repositories/.ecosystem/darkbase.md) (rendered as `[[darkbase]]` wiki page).
