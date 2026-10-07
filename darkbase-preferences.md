@@ -1,11 +1,11 @@
 # darkbase — Repo-Local Living Preferences
 > Repo-local preferences governed by the Living Documentation Law.
-> Universal Supreme Constitution: preferences.md (vexspoke).
+> Universal Supreme Constitution: workspace-root preferences.md, published on Gist.
 
 ## 0. Constitution Link (supreme)
-- [preferences.md](https://github.com/vexgraph-ecosystem/vexspoke/blob/main/preferences.md) (canonical, vexspoke) — accessible locally at ../../preferences.md
+- [preferences.md](https://gist.github.com/vex-graph/4132a6c45cb6d3797c3e8eff2e94035a) — real, Git-ignored workspace-root file at ../../../preferences.md, not a tracked Vexspoke file or symlink.
 - All universal laws in `../../../preferences.md` are mandatory and binding across the ecosystem.
-- This document codifies **exclusive** preferences that apply uniquely to `darkbase` (R3 Database Driver).
+- This document codifies **exclusive** preferences for `darkbase` (R3 Database Driver). Database semantics and persistence remain R3; allocation/storage and native span search belong to Relational Engine R2, with Vexspoke supplying CPU computation/behavior. Either R2 public contract may be borrowed. This blueprint has no implemented engine integration; migration and durability require owner proof.
 
 ## 1. Repo-Local Law Index (Binding Matrix)
 
@@ -54,4 +54,4 @@ Predictable index geometry guarantees bounded traversal depth and prevents fragm
 
 ## 4. Readiness Cross-Reference (Living Documentation Law)
 
-- Feature readiness matrix tracked in [`../../_repositories/.ecosystem/darkbase.md`](../../_repositories/.ecosystem/darkbase.md) (rendered as `[[darkbase]]` wiki page).
+- Feature readiness matrix: [darkbase](../../ecosystem/darkbase.md), rendered as `[[darkbase]]`.
