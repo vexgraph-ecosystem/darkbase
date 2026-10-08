@@ -22,14 +22,16 @@
 // Bare ID_* constants name vexspoke's own class space only; cross-project
 // dispatch ships the full TYPE_DB_* ids below.
 //
-// The entity model maps C vocabulary to store vocabulary:
-//   struct   -> Entity          (a table: an ordered EntityField list)
-//   field    -> EntityField     (a physical column: name, offset, size, typeId)
-//   function -> EntityFunction  (a named callable binding)
-//   trigger  -> DbTrigger       (a reactive program bound to a store event)
+// The entity model IS the reflection vocabulary — darkbase defines no parallel
+// schema types:
+//   struct   -> Struct          (reflection: a table = an ordered Field list)
+//   class    -> Class           (reflection: a Struct + constructor + Methods)
+//   field    -> Field           (reflection: name + read/set + physical layout)
+//   function -> Method          (reflection: a named callable binding)
+//   trigger  -> DbTrigger       (darkbase: a reactive program = Method + event)
 //
-// M0 registers the ids. Behavior lands per class in later milestones; an id
-// present here is a registry entry, not an implementation claim.
+// M0 registers the darkbase-owned ids. Behavior lands per class in later
+// milestones; an id present here is a registry entry, not an implementation claim.
 
 #define ID_DB_DATABASE           0x0001u
 #define ID_DB_DATABASE_RESULT    0x0002u
@@ -38,9 +40,6 @@
 #define ID_DB_DRIVER             0x0005u
 #define ID_DB_URI                0x0006u
 #define ID_DB_SCHEMA             0x0007u
-#define ID_DB_ENTITY             0x0008u
-#define ID_DB_ENTITY_FIELD       0x0009u
-#define ID_DB_ENTITY_FUNCTION    0x000Au
 #define ID_DB_TRIGGER            0x000Bu
 
 #define TYPE_DB_DATABASE_SINGLETON        (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_DATABASE)
@@ -50,9 +49,6 @@
 #define TYPE_DB_DRIVER_SINGLETON          (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_DRIVER)
 #define TYPE_DB_URI_SINGLETON             (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_URI)
 #define TYPE_DB_SCHEMA_SINGLETON          (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_SCHEMA)
-#define TYPE_DB_ENTITY_SINGLETON          (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_ENTITY)
-#define TYPE_DB_ENTITY_FIELD_SINGLETON    (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_ENTITY_FIELD)
-#define TYPE_DB_ENTITY_FUNCTION_SINGLETON (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_ENTITY_FUNCTION)
 #define TYPE_DB_TRIGGER_SINGLETON         (SUGAR_VEX | PROJ_DARKBASE | FORM_STRUCT_SINGLETON | ID_DB_TRIGGER)
 
 #endif
