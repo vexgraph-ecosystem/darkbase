@@ -11,9 +11,10 @@
 // PROJ_DARKBASE project byte, a form, and the class number below. This is the
 // single source of truth for darkbase's ids; no other header may redefine them.
 //
-// Project byte: PROJ_DARKBASE (0x06) is granted in vexspoke's oop/type.h and
-// resolved to ARCH_DARKBASE by Type_arch — the same per-project numbering every
-// repo uses. Class numbers start at 1 with gaps allowed.
+// Project byte: PROJ_DARKBASE (0x06) is granted by the shared type algebra
+// (relational-engine type/type.h, re-exported through oop/type.h) and resolved
+// to ARCH_DARKBASE by Type_arch — the same per-project numbering every repo
+// uses. Class numbers start at 1 with gaps allowed.
 //
 // NAMING: this header includes oop/type.h, so the preprocessor namespace is
 // shared with vexspoke's bare ID_* macros (for example vexspoke already owns
