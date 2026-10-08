@@ -142,8 +142,10 @@ contracts; it owns no OS window, GPU, or network behavior.
 **Known limits and gaps:**
 - The `.vexdb` format is native-endian (little-endian hosts) with whole-row
   copies by `Struct.size`; there is no per-field codec yet.
-- Load validates header + CRC before mutating, but a mid-load allocation failure
-  is not fully rolled back; there is no crash durability or write-ahead log.
+- Save publishes atomically (temp write + `fsync` + rename), so a failed save
+  never destroys the previous snapshot; load validates header + CRC before
+  mutating. There is no write-ahead log, and a mid-load allocation failure is
+  not fully rolled back.
 - Save/load stream through the engine `File`; no mmap/paged store, page
   directory, or per-page checksum yet.
 - Persistence is owner-affine and single-writer; no concurrency or multi-process

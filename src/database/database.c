@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "annotation/definition.h"
 #include "annotation/overview.h"
@@ -442,6 +443,18 @@ static bool readAll(File *file, void *dest, size_t length) {
     return true;
 }
 
+// Flush stdio and fsync the OS handle so the bytes are durable before publish.
+// macOS/POSIX floor; Windows durability (FlushFileBuffers + MoveFileEx) is a
+// stated gap.
+static bool syncFile(File *file) {
+    if (file == nullptr || File_flush(file) != true)
+        return false;
+    FILE *handle = File_handle(file);
+    if (handle == nullptr)
+        return false;
+    return fsync(fileno(handle)) == 0;
+}
+
 // Walk the payload once. checkOnly validates every entity against the registry
 // (present, stride match, still empty); commit reads the arena-owned rows in.
 static int32_t loadPayload(Database *self, const uint8_t *payload, size_t length,
@@ -505,10 +518,20 @@ int32_t Database_save(Database *self, const char *path) {
         }
         rowTotal += (*entity).rows ? ChunkedList_size((*entity).rows) : 0u;
     }
-    File *file = File_open(path, FILE_MODE_WRITE | FILE_MODE_CREATE | FILE_MODE_TRUNCATE);
+    // Publish atomically: write a temporary sibling, fsync it, then rename it
+    // over the destination. A failed or interrupted write leaves the previous
+    // snapshot intact; the destination is only ever the old or the new file.
+    char tmp[FILE_PATH_MAX + 32];
+    int tmpLen = snprintf(tmp, sizeof(tmp), "%s.%ld.tmp", path, (long) getpid());
+    if (tmpLen < 0 || (size_t) tmpLen >= sizeof(tmp)) {
+        recordError(self, DATABASE_INVALID, "save: path too long");
+        THROW("Database_save: path too long");
+        return DATABASE_INVALID;
+    }
+    File *file = File_open(tmp, FILE_MODE_WRITE | FILE_MODE_CREATE | FILE_MODE_TRUNCATE);
     if (file == nullptr) {
-        recordError(self, DATABASE_INVALID, "save: cannot open file");
-        THROW("Database_save: cannot open file");
+        recordError(self, DATABASE_INVALID, "save: cannot open temp file");
+        THROW("Database_save: cannot open temp file");
         return DATABASE_INVALID;
     }
     VexDbHeader header;
@@ -544,10 +567,19 @@ int32_t Database_save(Database *self, const char *path) {
     uint32_t trailer = ~crc;
     if (ok)
         ok = writeAll(file, &trailer, VEX_DB_TRAILER_BYTES);
+    if (ok)
+        ok = syncFile(file);
     File_close(file);
     if (!ok) {
+        remove(tmp);
         recordError(self, DATABASE_EXHAUSTED, "save: write failed");
         THROW("Database_save: write failed");
+        return DATABASE_EXHAUSTED;
+    }
+    if (rename(tmp, path) != 0) {
+        remove(tmp);
+        recordError(self, DATABASE_EXHAUSTED, "save: publish failed");
+        THROW("Database_save: publish rename failed");
         return DATABASE_EXHAUSTED;
     }
     recordError(self, DATABASE_OK, "");
