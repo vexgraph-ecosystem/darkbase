@@ -2,18 +2,45 @@
 
 ## CLion: CMake is IDE metadata only
 
-Open this repository root as a CMake project. `CMakeLists.txt` is an IDE-only
-blueprint entry: the registry header `src/darkbase/type.h` exists, but there are
-no production sources or C23 source targets yet, so there is nothing to provide
-semantic diagnostics or inlay hints for. No fake declarations, dependency
-downloads, linking or application runner are wired into it. IDE appearance is
-user-verified.
+Open this repository root as a CMake project. `CMakeLists.txt` gives CLion C23
+source targets, include paths and compiler flags for navigation, diagnostics and
+inlay hints; its targets are excluded from the default build. It is not the
+release build: no dependency is downloaded and no Cargo invocation, linking or
+application runner is wired into it. Optional `VEXSPOKE_SOURCE_DIR` and
+`RELATIONAL_ENGINE_SOURCE_DIR` point at local dependency `src` checkouts for the
+remaining header references; missing headers remain real errors, never fake
+declarations. IDE appearance is user-verified.
 
-Future builds belong to [b](https://github.com/vex-graph/b). No runnable database
-target is claimed by this metadata entry.
+The actual build entry is [b](https://github.com/vex-graph/b);
+`./tools/b build darkbase` links this repository's classes.
 
-**Role:** R3 Driver — the `Database` interface owner and its native vex store.
-**Status:** foundations (registry + build wiring). No store behavior yet.
+## Current State
+
+**Role:** R3 Driver — the `Database` interface owner and its native vex store
+(future name `darkbase-db`).
+
+**What is implemented and proven (macOS arm64):**
+- The class registry (`src/darkbase/type.h`, `PROJ_DARKBASE`) and the workspace
+  build entry (`setup_darkbase`); header contract and the `b` graph verified.
+- **M1 in-memory store** — `Database` registers reflection `Struct` entities and
+  binds caller-owned live rows; `DatabaseResult` is a dest-last cursor. Owner
+  tests `database_test` and `database_result_test` pass under
+  `-Wall -Wextra -Werror`.
+- **M2 persistence slice** — `Database_save`/`Database_load` write and read a
+  `.vexdb` file (64-byte `VEXDB01` header, flat row bytes by `Struct.size`, a
+  trailing CRC32). Round-trip, arena-owned loaded rows, duplicate-load rejection
+  and corrupted-checksum atomicity are covered by `database_test`.
+
+**Stubbed, draft, or planned:** field-level predicates and an offset-based codec;
+an mmap/paged store (waits on the Relational Engine `MappedFile` primitive);
+transactions/WAL; CSV/JSON/manifest and generated-header export; reactive
+`DbTrigger` programs; external drivers; the R5 `darkbase` executable. Registry
+ids are declared ahead of their classes.
+
+**Platforms proven:** macOS arm64 (Apple Silicon) only. Windows is unproven.
+
+**Evidence:** `tests/darkbase/` owners and `tests/test-checklist.md`. This is a
+lab pass, not a visual or cross-platform claim.
 
 ## What it is
 
@@ -81,7 +108,9 @@ Database semantics and persistence remain Darkbase R3.
 ## Layout
 
 - `src/darkbase/type.h` — the class registry (`PROJ_DARKBASE`, 1..N).
-- `src/database/` — the L2 `Database` interface and cursor (future).
+- `src/database/` — the L2 `Database` interface, entity/row switchboard, dest-last
+  cursor and `.vexdb` persistence (implemented: `database.{h,c}`,
+  `database_result.{h,c}`).
 - `src/schema/` — registration over reflection `Struct`/`Field`/`Class` (future).
 - `src/store/`, `src/codec/`, `src/index/`, `src/tx/`, `src/export/` (future).
 - `drivers/` — quarantined external driver dylibs (future: sqlite, postgres, ...).
@@ -95,3 +124,28 @@ Database semantics and persistence remain Darkbase R3.
 - Commits land in THIS repo root, one cohesive unit each; never push unless asked.
 - One public class per `.h`/`.c` pair, `(*ptr).field` (never `->`), dest-last
   params, `-Wall -Wextra -Werror`.
+
+## Scope and Limitations
+
+**Scope:** darkbase owns the `Database` interface and the native vex store —
+entity/row persistence over R2 reflection, structured (non-SQL) queries, and
+export. It borrows Relational Engine memory/IO and Vexspoke CPU/reflection
+contracts; it owns no OS window, GPU, or network behavior.
+
+**Deliberately not covered:**
+- Not a SQL engine: no text parser, planner, or executor in the core; SQL is at
+  most an optional `cli/` convenience or a foreign driver's private translation.
+- No external database client libraries in the default build; foreign drivers
+  (SQLite/Postgres/MariaDB/cloud) are future quarantined dylibs.
+- No R1/R4/R5 or `api-haven` headers (the Vertical Integration Law).
+
+**Known limits and gaps:**
+- The `.vexdb` format is native-endian (little-endian hosts) with whole-row
+  copies by `Struct.size`; there is no per-field codec yet.
+- Load validates header + CRC before mutating, but a mid-load allocation failure
+  is not fully rolled back; there is no crash durability or write-ahead log.
+- Save/load stream through the engine `File`; no mmap/paged store, page
+  directory, or per-page checksum yet.
+- Persistence is owner-affine and single-writer; no concurrency or multi-process
+  coordination is claimed.
+- Proven only on macOS arm64; Windows is untested.
