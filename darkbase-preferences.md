@@ -25,25 +25,25 @@ Universal laws are inherited from the canonical `../../../preferences.md` Index;
 ### Entity Model Law
 
 #### Definition:
-darkbase models C vocabulary directly as store vocabulary: a `struct` is an
-`Entity` (a table, an ordered list of `EntityField`), a `field` is an
-`EntityField` (a physical column: name, byte offset, size, value typeId, and
-flags), and a `function` is an `EntityFunction` (a named callable binding).
-Plain values are named typed bindings in the same scope. `EntityField` is the
-physical descriptor R2 reflection does not provide (its `Field` is
-behavior-only), and it is the single source of truth for both persistence and
-export.
+darkbase defines no schema types of its own; it consumes R2 reflection. A
+`struct` is a `Struct` (a table: an ordered `Field` list, whose `size` is the
+entity row stride), a `class` is a `Class` (a `Struct` plus a constructor and
+`Method`s), a `field` is a `Field`, and a `function` is a `Method`. `Field`
+carries both behavior (name + read/set + target) and physical layout (typeId,
+offset, size, flags), so one record serves live reflection, persistence and
+export. Plain values are named typed bindings in the same scope.
 
 #### The Why:
 A schema expressed as C types needs no DDL text and cannot drift from the struct
-it describes. One uniform binding vocabulary lets rows, callable behavior, and
-plain values live in one findable namespace, matching the relational engine's
-"name to value" thesis.
+it describes. One shared vocabulary lets rows, callable behavior, and plain
+values live in one findable namespace and be read the same way by reflection,
+the store, scripts, debuggers and the UI. It is the Relational Engine's "name to
+value" thesis carried through to persistence.
 
 #### The Rule:
-1. **Structs become Entities; fields become EntityFields; functions become EntityFunctions.** No parallel ad-hoc schema language.
-2. **EntityField owns the physical layout.** Persistence and export read offsets, size, and typeId from it, never from a hand-maintained table.
-3. **One binding namespace.** Entities, functions, and plain values resolve through the same scope and naming grammar.
+1. **Reflection IS the schema.** Structs are entities, Fields are entity fields, Methods are functions. No parallel ad-hoc schema language, and no darkbase-owned descriptor duplicating `Field`.
+2. **Field owns the physical layout.** Persistence and export read offset, size and typeId from the `Field` (or the `Struct`'s row size), never from a hand-maintained table. Vexspoke's reflection `Field` is the single source of truth; a need for more reads it there first.
+3. **One binding namespace.** Structs, Methods, and plain values resolve through the same scope and naming grammar.
 
 ---
 
@@ -63,7 +63,7 @@ them named programs keeps behavior with the data and exportable with it.
 #### The Rule:
 1. **Programs fire on the cold admission path only.** Never per element on a hot read (Cold-Strict, Hot-Minimal Validation Law; Cold-Only Reflection Law).
 2. **Programs are data plus behavior.** They export as a descriptor; their code rebinds by name on load, never by a stored address.
-3. **Views are derived Entities.** A view's rows are computed by a program against the authoritative store, not a second synchronized copy.
+3. **Views are derived Structs.** A view's rows are computed by a program against the authoritative store, not a second synchronized copy.
 
 ---
 
@@ -116,7 +116,7 @@ Predictable index geometry guarantees bounded traversal depth and prevents fragm
 
 ## 3. Repo-Local Extensions (managed, per the Conflict Triage Law)
 
-;;INTENTION("R3 Database Driver: native vex entity store (struct->Entity, field->EntityField, function->EntityFunction) with reactive store-event programs; zero-alloc table scans; strict page consistency; structured native query, not a SQL engine.")
+;;INTENTION("R3 Database Driver: native vex entity store over the shared reflection vocabulary (Struct=entity, Field=entity field with physical layout, Method=function) with reactive store-event programs; zero-alloc table scans; strict page consistency; structured native query, not a SQL engine.")
 
 ---
 
