@@ -378,6 +378,14 @@ const char *Database_errorText(int32_t code) {
 #define VEX_DB_HEADER_BYTES 64u
 #define VEX_DB_TRAILER_BYTES 4u
 
+// INTENTIONAL(vex): NO ENDIANNESS NEEDED!! We just write the value bytes in
+// memory order (left to right) and call it a day — not laziness, but because a
+// byte[] right-to-the-point is more native than byte-swap machinery and needs
+// no complication. Every supported host is little-endian (Apple Silicon arm64
+// floor; Windows x86_64), so there is no cross-endian peer to serve. Values are
+// raw uint8_t[] spans — nothing is encoded as text. toString() is a cold
+// converter for humans, never a storage format.
+
 // File header (64 Bytes). A CRC32 of the payload (every byte between the header
 // and the trailer) is written as a 4-byte trailer, so a reader validates the
 // whole file before mutating the registry.
