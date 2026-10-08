@@ -84,6 +84,16 @@ uint32_t Database_count(const Database *self, const char *entity);
 // A fresh dest-last cursor over an entity's rows, or null when absent.
 DatabaseResult *Database_select(Database *self, const char *entity);
 
+// --- Persistence (M2, .vexdb) ---
+// Serialize the registry and bound rows to a native-endian .vexdb file, or load
+// rows back from one. load requires the same Structs registered and their
+// entities empty; loaded rows become arena-owned and are freed on Database_free.
+// A trailing CRC32 covers the payload; a bad header/CRC rejects before mutating.
+// Returns a DATABASE_* code. Flat native-endian row Bytes; big-endian is out of
+// scope for this slice.
+int32_t Database_save(Database *self, const char *path);
+int32_t Database_load(Database *self, const char *path);
+
 // --- Diagnostics ---
 int32_t Database_errorCode(const Database *self);
 // Bounded copy of the last error message (dest-last); returns length or -1.

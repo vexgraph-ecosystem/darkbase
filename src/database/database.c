@@ -9,6 +9,7 @@
 #include "annotation/overview.h"
 #include "darkbase/type.h"
 #include "exception/throw.h"
+#include "io/file.h"
 #include "nio/mem.h"
 #include "oop/type.h"
 #include "reflection/struct.h"
@@ -68,16 +69,24 @@
  * SLOT RECORD (owned by Database, behaviorless; all behavior hangs off Database):
  *   DbEntity {
  *     char name[24];        // folded entity name (atom grammar)
+ *     uint32_t owned;       // 1 = rows are arena-owned (file-loaded)
  *     uint32_t pad;         // explicit padding
  *     Struct *schema;       // borrowed reflection layout (the entity)
  *     ChunkedList *rows;    // row pointers (void*); stable addresses
  *   }
+ *
+ * PRIVATE HELPERS (persistence, pure logic):
+ *   crc32Update(crc, data, length)          // running IEEE CRC32 (static)
+ *   writeAll(file, src, length)             // short-write-safe (static)
+ *   readAll(file, dest, length)             // short-read-safe (static)
+ *   loadPayload(self, bytes, len, count, commit) // walk/validate/commit (static)
  *
  * FUNCTION REGISTRY:
  * ----------------------------------------------------------------------------
  * Public Constructors: (.h) Database_0(), _1(chunkBytes), _init, _free
  * Public Core Functions: (.h) _kind, _check, _define, _entityIndex, _entityCount,
  *                             _schema, _insert, _row, _count, _select
+ * Public Persistence: (.h) _save, _load
  * Public Diagnostics: (.h) _errorCode, _lastError, _errorText
  * Public String Projections: (.h) _toString / _toStringStruct
  * ============================================================================
@@ -87,6 +96,7 @@
 
 typedef struct DbEntity {
     char name[DB_ENTITY_NAME_BYTES]; // folded entity name (atom grammar)
+    uint32_t owned;                  // 1 = rows are arena-owned (file-loaded)
     uint32_t pad;                    // explicit padding
     Struct *schema;                  // borrowed reflection layout (the entity)
     ChunkedList *rows;               // row pointers (void*); stable addresses
@@ -161,8 +171,17 @@ void Database_free(Database *self) {
         uint32_t n = ChunkedList_size((*self).entities);
         for (uint32_t i = 0u; i < n; i++) {
             DbEntity *entity = (DbEntity*) ChunkedList_slot((*self).entities, i);
-            if (entity != nullptr && (*entity).rows != nullptr)
-                ChunkedList_free((*entity).rows);
+            if (entity == nullptr || (*entity).rows == nullptr)
+                continue;
+            if ((*entity).owned != 0u) {
+                uint32_t rows = ChunkedList_size((*entity).rows);
+                for (uint32_t r = 0u; r < rows; r++) {
+                    uint8_t *slot = ChunkedList_slot((*entity).rows, r);
+                    if (slot != nullptr)
+                        Memory_free(*(void**) slot);
+                }
+            }
+            ChunkedList_free((*entity).rows);
         }
         ChunkedList_free((*self).entities);
         (*self).entities = nullptr;
@@ -273,6 +292,11 @@ int32_t Database_insert(Database *self, const char *entity, void *row) {
         THROW("Database_insert: entity unavailable");
         return -1;
     }
+    if ((*target).owned != 0u) {
+        recordError(self, DATABASE_INVALID, "insert: entity holds loaded rows");
+        THROW("Database_insert: cannot bind a live row into a file-loaded entity");
+        return -1;
+    }
     uint8_t *slot = ChunkedList_addSlot((*target).rows);
     if (slot == nullptr) {
         recordError(self, DATABASE_EXHAUSTED, "insert: row allocation failed");
@@ -345,6 +369,259 @@ const char *Database_errorText(int32_t code) {
         case DATABASE_EXHAUSTED: return "allocation exhausted";
         default:                 return "unknown";
     }
+}
+
+// PERSISTENCE (M2, .vexdb)
+
+#define VEX_DB_MAGIC "VEXDB01"
+#define VEX_DB_VERSION 1u
+#define VEX_DB_HEADER_BYTES 64u
+#define VEX_DB_TRAILER_BYTES 4u
+
+// File header (64 Bytes). A CRC32 of the payload (every byte between the header
+// and the trailer) is written as a 4-byte trailer, so a reader validates the
+// whole file before mutating the registry.
+typedef struct VexDbHeader {
+    char magic[8];         // "VEXDB01\0"
+    uint32_t version;      // VEX_DB_VERSION
+    uint32_t entityCount;  // entity records that follow
+    uint64_t rowCount;     // total rows across entities
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint8_t pad[32];       // to 64
+} VexDbHeader;
+_Static_assert(sizeof(VexDbHeader) == VEX_DB_HEADER_BYTES, "VexDbHeader must stay 64 Bytes");
+
+// One entity record (32 Bytes): rowCount * stride raw row Bytes follow it.
+typedef struct VexDbEntity {
+    char name[DB_ENTITY_NAME_BYTES]; // folded entity name
+    uint32_t stride;                 // entity row byte stride
+    uint32_t rowCount;               // rows that follow
+} VexDbEntity;
+_Static_assert(sizeof(VexDbEntity) == 32u, "VexDbEntity must stay 32 Bytes");
+
+// Running IEEE CRC32 (reflected). Finalise with ~crc.
+static uint32_t crc32Update(uint32_t crc, const uint8_t *data, size_t length) {
+    for (size_t i = 0u; i < length; i++) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; bit++)
+            crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t) (-(int32_t) (crc & 1u)));
+    }
+    return crc;
+}
+
+static bool writeAll(File *file, const void *src, size_t length) {
+    const uint8_t *p = (const uint8_t*) src;
+    size_t done = 0u;
+    while (done < length) {
+        int64_t n = File_write(file, p + done, (int64_t) (length - done));
+        if (n <= 0)
+            return false;
+        done += (size_t) n;
+    }
+    return true;
+}
+
+static bool readAll(File *file, void *dest, size_t length) {
+    uint8_t *p = (uint8_t*) dest;
+    size_t done = 0u;
+    while (done < length) {
+        int64_t n = File_read(file, p + done, (int64_t) (length - done));
+        if (n <= 0)
+            return false;
+        done += (size_t) n;
+    }
+    return true;
+}
+
+// Walk the payload once. checkOnly validates every entity against the registry
+// (present, stride match, still empty); commit reads the arena-owned rows in.
+static int32_t loadPayload(Database *self, const uint8_t *payload, size_t length,
+                           uint32_t entityCount, bool commit) {
+    size_t offset = 0u;
+    for (uint32_t e = 0u; e < entityCount; e++) {
+        if (offset + sizeof(VexDbEntity) > length)
+            return DATABASE_INVALID;
+        VexDbEntity record;
+        memcpy(&record, payload + offset, sizeof(record));
+        offset += sizeof(record);
+        if (record.stride == 0u)
+            return DATABASE_INVALID;
+        size_t rowBytes = (size_t) record.stride * (size_t) record.rowCount;
+        if (rowBytes > length || offset + rowBytes > length)
+            return DATABASE_INVALID;
+        int32_t index = Database_entityIndex(self, record.name);
+        if (index < 0)
+            return DATABASE_ABSENT;
+        DbEntity *entity = (DbEntity*) ChunkedList_slot((*self).entities, (uint32_t) index);
+        if (entity == nullptr || (*entity).schema == nullptr || (*entity).rows == nullptr)
+            return DATABASE_ABSENT;
+        if (Struct_getSize((*entity).schema) != record.stride)
+            return DATABASE_INVALID;
+        if (ChunkedList_size((*entity).rows) != 0u)
+            return DATABASE_DUPLICATE;
+        if (commit) {
+            for (uint32_t r = 0u; r < record.rowCount; r++) {
+                void *buffer = Memory_alloc(TYPE_DB_DATABASE_ROW_SINGLETON, record.stride);
+                if (buffer == nullptr)
+                    return DATABASE_EXHAUSTED;
+                memcpy(buffer, payload + offset + (size_t) r * record.stride, record.stride);
+                uint8_t *slot = ChunkedList_addSlot((*entity).rows);
+                if (slot == nullptr) {
+                    Memory_free(buffer);
+                    return DATABASE_EXHAUSTED;
+                }
+                *((void**) slot) = buffer;
+            }
+            (*entity).owned = 1u;
+        }
+        offset += rowBytes;
+    }
+    return offset == length ? DATABASE_OK : DATABASE_INVALID;
+}
+
+int32_t Database_save(Database *self, const char *path) {
+    if (self == nullptr || path == nullptr) {
+        recordError(self, DATABASE_INVALID, "save: null database or path");
+        THROW("Database_save: null database or path");
+        return DATABASE_INVALID;
+    }
+    uint32_t entities = Database_entityCount(self);
+    uint64_t rowTotal = 0u;
+    for (uint32_t i = 0u; i < entities; i++) {
+        DbEntity *entity = (DbEntity*) ChunkedList_slot((*self).entities, i);
+        if (entity == nullptr || (*entity).schema == nullptr || Struct_getSize((*entity).schema) == 0u) {
+            recordError(self, DATABASE_INVALID, "save: entity has no row stride");
+            THROW("Database_save: entity has no row stride");
+            return DATABASE_INVALID;
+        }
+        rowTotal += (*entity).rows ? ChunkedList_size((*entity).rows) : 0u;
+    }
+    File *file = File_open(path, FILE_MODE_WRITE | FILE_MODE_CREATE | FILE_MODE_TRUNCATE);
+    if (file == nullptr) {
+        recordError(self, DATABASE_INVALID, "save: cannot open file");
+        THROW("Database_save: cannot open file");
+        return DATABASE_INVALID;
+    }
+    VexDbHeader header;
+    memset(&header, 0, sizeof(header));
+    memcpy(header.magic, VEX_DB_MAGIC, 7u);
+    header.version = VEX_DB_VERSION;
+    header.entityCount = entities;
+    header.rowCount = rowTotal;
+    uint32_t crc = 0xFFFFFFFFu;
+    bool ok = writeAll(file, &header, sizeof(header));
+    for (uint32_t i = 0u; ok && i < entities; i++) {
+        DbEntity *entity = (DbEntity*) ChunkedList_slot((*self).entities, i);
+        uint32_t stride = Struct_getSize((*entity).schema);
+        uint32_t count = (*entity).rows ? ChunkedList_size((*entity).rows) : 0u;
+        VexDbEntity record;
+        memset(&record, 0, sizeof(record));
+        memcpy(record.name, (*entity).name, DB_ENTITY_NAME_BYTES);
+        record.stride = stride;
+        record.rowCount = count;
+        ok = writeAll(file, &record, sizeof(record));
+        crc = crc32Update(crc, (const uint8_t*) &record, sizeof(record));
+        for (uint32_t r = 0u; ok && r < count; r++) {
+            uint8_t *slot = ChunkedList_slot((*entity).rows, r);
+            void *row = slot ? *(void**) slot : nullptr;
+            if (row == nullptr) {
+                ok = false;
+                break;
+            }
+            ok = writeAll(file, row, stride);
+            crc = crc32Update(crc, (const uint8_t*) row, stride);
+        }
+    }
+    uint32_t trailer = ~crc;
+    if (ok)
+        ok = writeAll(file, &trailer, VEX_DB_TRAILER_BYTES);
+    File_close(file);
+    if (!ok) {
+        recordError(self, DATABASE_EXHAUSTED, "save: write failed");
+        THROW("Database_save: write failed");
+        return DATABASE_EXHAUSTED;
+    }
+    recordError(self, DATABASE_OK, "");
+    return DATABASE_OK;
+}
+
+int32_t Database_load(Database *self, const char *path) {
+    if (self == nullptr || path == nullptr) {
+        recordError(self, DATABASE_INVALID, "load: null database or path");
+        THROW("Database_load: null database or path");
+        return DATABASE_INVALID;
+    }
+    File *file = File_open(path, FILE_MODE_READ);
+    if (file == nullptr) {
+        recordError(self, DATABASE_INVALID, "load: cannot open file");
+        THROW("Database_load: cannot open file");
+        return DATABASE_INVALID;
+    }
+    VexDbHeader header;
+    if (!readAll(file, &header, sizeof(header)) ||
+        memcmp(header.magic, VEX_DB_MAGIC, 7u) != 0 ||
+        header.version != VEX_DB_VERSION) {
+        File_close(file);
+        recordError(self, DATABASE_INVALID, "load: bad header");
+        THROW("Database_load: bad header");
+        return DATABASE_INVALID;
+    }
+    int64_t size = File_size(file);
+    int64_t payloadLen = size - (int64_t) VEX_DB_HEADER_BYTES - (int64_t) VEX_DB_TRAILER_BYTES;
+    if (size < (int64_t) (VEX_DB_HEADER_BYTES + VEX_DB_TRAILER_BYTES) || payloadLen < 0) {
+        File_close(file);
+        recordError(self, DATABASE_INVALID, "load: truncated file");
+        THROW("Database_load: truncated file");
+        return DATABASE_INVALID;
+    }
+    uint8_t *payload = nullptr;
+    if (payloadLen > 0) {
+        payload = (uint8_t*) Memory_alloc(0u, (size_t) payloadLen);
+        if (payload == nullptr) {
+            File_close(file);
+            recordError(self, DATABASE_EXHAUSTED, "load: payload allocation failed");
+            THROW("Database_load: payload allocation failed");
+            return DATABASE_EXHAUSTED;
+        }
+        if (!readAll(file, payload, (size_t) payloadLen)) {
+            Memory_free(payload);
+            File_close(file);
+            recordError(self, DATABASE_INVALID, "load: payload read failed");
+            THROW("Database_load: payload read failed");
+            return DATABASE_INVALID;
+        }
+    }
+    uint32_t trailer = 0u;
+    bool haveTrailer = readAll(file, &trailer, VEX_DB_TRAILER_BYTES);
+    File_close(file);
+    if (!haveTrailer) {
+        if (payload)
+            Memory_free(payload);
+        recordError(self, DATABASE_INVALID, "load: missing checksum");
+        THROW("Database_load: missing checksum");
+        return DATABASE_INVALID;
+    }
+    uint32_t crc = ~crc32Update(0xFFFFFFFFu, payload, (size_t) payloadLen);
+    if (crc != trailer) {
+        if (payload)
+            Memory_free(payload);
+        recordError(self, DATABASE_INVALID, "load: checksum mismatch");
+        THROW("Database_load: checksum mismatch");
+        return DATABASE_INVALID;
+    }
+    int32_t status = loadPayload(self, payload, (size_t) payloadLen, header.entityCount, false);
+    if (status == DATABASE_OK)
+        status = loadPayload(self, payload, (size_t) payloadLen, header.entityCount, true);
+    if (payload)
+        Memory_free(payload);
+    if (status != DATABASE_OK) {
+        recordError(self, status, "load: payload rejected");
+        THROW("Database_load: payload rejected");
+        return status;
+    }
+    recordError(self, DATABASE_OK, "");
+    return DATABASE_OK;
 }
 
 // STRING PROJECTIONS (the toString Law)
