@@ -17,6 +17,7 @@ Universal laws are inherited from the canonical `../../../preferences.md` Index;
 | **Entity Model Law** | R3 Database Driver | Mandatory for `darkbase` |
 | **Reactive Program Law** | R3 Database Driver | Mandatory for `darkbase` |
 | **Store Versus Executable Separation Law** | R3 Database Driver | Mandatory for `darkbase` |
+| **Byte-Native Persistence Law** | R3 Database Driver | Mandatory for `darkbase` |
 | **Zero-Alloc Relational Table Scan Law** | R3 Database Driver | Mandatory for `darkbase` |
 | **B-Tree Page Consistency Law** | R3 Database Driver | Mandatory for `darkbase` |
 
@@ -83,6 +84,32 @@ UI and blocks other consumers.
 1. **The store never includes R5.** Hosts borrow an opaque `Database*` plus callbacks (Vertical Integration Law).
 2. **The executable is a separate application** over the store, owning no store internals.
 3. **Naming is deliberate:** store = `darkbase-db` (future), executable = `darkbase`.
+
+---
+
+### Byte-Native Persistence Law
+
+#### Definition:
+Values in darkbase are raw byte spans (`uint8_t[]`). A value is written in
+memory order and read back the same way, with **no byte-order machinery**: no
+endianness detection, no byte swapping, no text encoding. `toString` is a cold
+converter for humans only, never a storage format. The canonical variable is
+`{ uint8_t name[24], void* pointer }` — name bytes plus a pointer to the value
+bytes (the engine's `VariableSlot` already carries this shape).
+
+#### The Why:
+Every supported host is little-endian (the Apple Silicon arm64 floor; Windows
+x86_64), so there is no cross-endian peer to serve. Byte-in-order is more native
+than a swap layer and needs no complication; converting numbers to strings for
+storage would add encoding that the schema already provides. A `void*` value
+pointer is the same "everything is a pointer" model the relational engine uses.
+
+#### The Rule:
+1. **Bytes, not text, for storage.** Durable values are `uint8_t[]` spans; the schema (`Field.typeId` + offset/size) interprets them. No string encoding in a file.
+2. **No endianness code.** Write and read bytes in memory order (native, little-endian floor). No swap helpers, no byte-order fields. A `// INTENTIONAL(vex)` note states this at the format definition.
+3. **`toString` is a cold converter.** String projections exist for debugging only (the toString Law) and are never the persisted form.
+4. **Pointer-free rows.** Persisted row bytes carry no raw pointers; references and functions are rebound by name/index on load.
+5. **Canonical variable.** `{ uint8_t name[24], void* pointer }`; names are 24-byte byte spans, the value is a pointer to its bytes.
 
 ---
 
