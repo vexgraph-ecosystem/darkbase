@@ -27,21 +27,29 @@ It is **not** a SQL engine. The native contract is a structured relational API;
 the schema is C reflection, not DDL. Text/SQL appears only as an optional
 `cli/` convenience or a foreign driver's private translation, never in the core.
 
-## The entity model
+## The entity model — one shared vocabulary
 
-| C vocabulary | darkbase class | Meaning |
+darkbase does not define its own schema types; it consumes R2 reflection. A
+`struct` is a `Struct`, a `field` is a `Field`, a `class` is a `Class` (a `Struct`
+plus a constructor and `Method`s), and a `function` is a `Method`:
+
+| C vocabulary | shared type | Meaning |
 | :--- | :--- | :--- |
-| `struct` | `Entity` | a table: an ordered `EntityField` list |
-| `field` | `EntityField` | a physical column: name, offset, size, value typeId, flags |
-| `function` | `EntityFunction` | a named callable binding |
-| `trigger` | `DbTrigger` | a reactive program bound to a store event |
+| `struct` | `Struct` (reflection) | a table: an ordered `Field` list = one entity; its `size` is the row stride |
+| `class` | `Class` (reflection) | a `Struct` + constructor + `Method[]` (an entity with behavior) |
+| `field` | `Field` (reflection) | a column: name + read/set, plus physical layout (offset, size, value typeId, flags) |
+| `function` | `Method` (reflection) | a named callable binding |
+| `trigger` | `DbTrigger` (darkbase) | a reactive program bound to a store event (embeds a `Method` + event) |
 
-The physical descriptor `EntityField` is the keystone: R2 reflection's `Field`
-is behavior-only (name + read/set + target) and carries no offset/size/typeId, so
-darkbase owns the descriptor both persistence and export depend on.
+`Field` is the keystone, and it already exists in R2 reflection: vexspoke extends
+it with the physical layout (offset/size/typeId/flags) so one record both
+reads/writes a value and describes where its Bytes live. That is what makes
+reflection, persistence and export speak one language; `Field_setTypeId` derives
+the byte width from `Stride_get` when the size is unset. darkbase adds no
+parallel descriptor.
 
 Plain values are named typed bindings in the same scope, so structs, functions,
-and values share one reflection vocabulary.
+and values share one vocabulary.
 
 ## Reactive programs
 
@@ -50,7 +58,7 @@ stored procedures. A program declares an event (`beforeInsert`, `afterInsert`,
 `beforeUpdate`, `afterDelete`, `onOpen`, `onCommit`, `onRollback`) plus a
 callback, and the store fires it on the cold admission path — never per element
 on a hot read (Cold-Strict, Hot-Minimal Validation Law; Cold-Only Reflection
-Law). Views are derived `Entity` rows computed by a program. Programs export as
+Law). Views are derived `Struct` rows computed by a program. Programs export as
 a descriptor; their code rebinds by name on load, like functions.
 
 ## Future naming: store vs executable
@@ -74,7 +82,7 @@ Database semantics and persistence remain Darkbase R3.
 
 - `src/darkbase/type.h` — the class registry (`PROJ_DARKBASE`, 1..N).
 - `src/database/` — the L2 `Database` interface and cursor (future).
-- `src/schema/` — `Entity`, `EntityField`, `EntityFunction` (future).
+- `src/schema/` — registration over reflection `Struct`/`Field`/`Class` (future).
 - `src/store/`, `src/codec/`, `src/index/`, `src/tx/`, `src/export/` (future).
 - `drivers/` — quarantined external driver dylibs (future: sqlite, postgres, ...).
 - Tests: the shared `../../../tests/darkbase/` partition (mirrored per unit, the
