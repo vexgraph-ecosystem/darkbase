@@ -1,0 +1,97 @@
+#ifndef DARKBASE_DATABASE_DATABASE_H
+#define DARKBASE_DATABASE_DATABASE_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "c23/constructor.h"
+#include "database/database_result.h"
+#include "reflection/struct.h"
+#include "struct/chunked_list.h"
+
+// database/database.h — the L2 Database: the entity/row switchboard.
+//
+// A Database is the native vex store's in-memory switchboard. It registers
+// reflection Structs as entities (tables) and binds caller-owned live rows to
+// them. A schema IS a Struct (the Entity Model Law): its Fields carry both the
+// read/write behavior and the physical layout, so this class stores nothing but
+// stable row POINTERS — it never copies or owns a row. Persistence, export and
+// reactive programs are later milestones; M1 is the in-memory store.
+//
+// Vocabulary: a Struct is an entity, a Field is an entity field, a Method is a
+// function. Database adds no schema type of its own.
+//
+// Name grammar: an entity is named by its Struct's folded 24-byte atom name
+// (the same grammar VariableSlot_foldName owns). Duplicate entity names reject.
+//
+// Errors: the last cold rejection is recorded on the instance
+// (Database_errorCode / Database_lastError) and reported once through THROW
+// (the Cold-Strict, Hot-Minimal Validation Law; the THROW Law).
+//
+// Thread affinity: owner-affine (a single writer/reader at a time). Rows are
+// binder-owned and must outlive the Database.
+
+#define DB_ENTITY_NAME_MAX 23u
+#define DB_ENTITY_NAME_BYTES 24u
+#define DB_ERROR_MESSAGE_MAX 128u
+
+// Cold rejection codes (Database_errorCode). DATABASE_OK is success.
+typedef enum DatabaseCode {
+    DATABASE_OK = 0,
+    DATABASE_INVALID = 1,   // null or illegal argument
+    DATABASE_DUPLICATE = 2, // an entity with the name is already registered
+    DATABASE_ABSENT = 3,    // no such entity / row
+    DATABASE_EXHAUSTED = 4, // row-list allocation failed
+} DatabaseCode;
+
+typedef struct Database {
+    ChunkedList *entities;              // DbEntity rows (layout private to database.c)
+    uint32_t chunkBytes;                // leaf byte budget for per-entity row lists
+    int32_t lastCode;                   // last DATABASE_* code
+    char lastError[DB_ERROR_MESSAGE_MAX];
+} Database;
+
+// --- Constructors ---
+// _0() uses the default leaf budget; _1(chunkBytes) overrides it. Arena-allocated.
+Database *Database_0(void);
+Database *Database_1(uint32_t chunkBytes);
+#define Database(...) CONSTRUCTOR_DISPATCH(Database, __VA_ARGS__)
+// Release an arena-allocated Database and every per-entity row list. Rows are
+// borrowed (never freed here). Never call on an inline instance.
+void Database_free(Database *self);
+
+uint64_t Database_kind(const Database *self);
+bool Database_check(const Database *self, uint64_t typeId);
+
+// --- Core functions ---
+// Register a Struct as an entity. Returns its index, or -1 on a null/illegal
+// schema or a duplicate name. The schema is borrowed for the Database's life.
+int32_t Database_define(Database *self, Struct *schema);
+// Register index for a folded name, or -1 when absent/invalid (null-safe).
+int32_t Database_entityIndex(const Database *self, const char *entity);
+// Live entity count.
+uint32_t Database_entityCount(const Database *self);
+// The borrowed schema for an entity, or null (null-safe).
+Struct *Database_schema(const Database *self, const char *entity);
+
+// Bind a caller-owned live row to an entity. Returns the row index, or -1.
+int32_t Database_insert(Database *self, const char *entity, void *row);
+// The row pointer at an index, or null (null-safe).
+void *Database_row(const Database *self, const char *entity, uint32_t index);
+// Live rows bound to an entity (0 when absent).
+uint32_t Database_count(const Database *self, const char *entity);
+// A fresh dest-last cursor over an entity's rows, or null when absent.
+DatabaseResult *Database_select(Database *self, const char *entity);
+
+// --- Diagnostics ---
+int32_t Database_errorCode(const Database *self);
+// Bounded copy of the last error message (dest-last); returns length or -1.
+int Database_lastError(const Database *self, char *out, size_t outCap);
+// Static text for a DATABASE_* code (never null).
+const char *Database_errorText(int32_t code);
+
+void Database_toString(const Database *self, char *dest, size_t cap, bool *outTruncated);
+void Database_toStringStruct(const Database *self, char *dest, size_t cap, bool *outTruncated);
+
+#endif
