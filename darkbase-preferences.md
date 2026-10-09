@@ -149,4 +149,5 @@ Predictable index geometry guarantees bounded traversal depth and prevents fragm
 
 ## 4. Readiness Cross-Reference (Living Documentation Law)
 
-- Feature readiness matrix: [darkbase](../../ecosystem/darkbase.md), rendered as `[[darkbase]]`.
+- Feature readiness matrix: [darkbase](https://gist.github.com/vex-graph/6943f92acb931b25dad1073c46da6ce7#file-darkbase-md).
+- Open blockers and deferred decisions: [ecosystem blockers Gist](https://gist.github.com/vex-graph/e921fa188eebbd0c68c4e59646109887).
