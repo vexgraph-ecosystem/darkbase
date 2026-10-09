@@ -104,6 +104,10 @@ typedef struct DbEntity {
 
 // PRIVATE HELPERS
 
+/**
+ * Stores the latest error code and bounded message when the Database exists.
+ * A null message clears the stored text; a null Database is ignored.
+ */
 static void recordError(Database *self, int32_t code, const char *message) {
     if (self == nullptr)
         return;
@@ -119,6 +123,10 @@ static void recordError(Database *self, int32_t code, const char *message) {
     (*self).lastError[copy] = '\0';
 }
 
+/**
+ * Finds an entity by its already-folded name, returning its registry index or
+ * -1 when the inputs, registry, or matching entity are absent.
+ */
 static int32_t findEntity(const Database *self, const char *folded) {
     if (self == nullptr || folded == nullptr || (*self).entities == nullptr)
         return -1;
@@ -133,6 +141,10 @@ static int32_t findEntity(const Database *self, const char *folded) {
 
 // CONSTRUCTORS
 
+/**
+ * Initializes caller-provided storage and its entity registry. A zero or too-
+ * small chunk budget selects the default; failure returns false.
+ */
 bool Database_init(Database *self, uint32_t chunkBytes) {
     if (self == nullptr)
         return false;
@@ -149,6 +161,10 @@ bool Database_init(Database *self, uint32_t chunkBytes) {
     return true;
 }
 
+/**
+ * Allocates and initializes a Database using the requested per-entity chunk
+ * budget, returning nullptr if allocation or initialization fails.
+ */
 Database *Database_1(uint32_t chunkBytes) {
     Database *self = (Database*) Memory_alloc(TYPE_DB_DATABASE_SINGLETON, sizeof(Database));
     if (self == nullptr)
@@ -160,10 +176,17 @@ Database *Database_1(uint32_t chunkBytes) {
     return self;
 }
 
+/**
+ * Allocates and initializes a Database with the default chunk budget.
+ */
 Database *Database_0(void) {
     return Database_1(VEX_CHUNKED_BYTES_DEFAULT);
 }
 
+/**
+ * Releases entity row lists and the Database allocation; only rows loaded from
+ * persistence are owned and freed, while schemas and live rows are borrowed.
+ */
 void Database_free(Database *self) {
     if (self == nullptr)
         return;
@@ -191,18 +214,28 @@ void Database_free(Database *self) {
 
 // CORE FUNCTIONS
 
+/**
+ * Returns the allocation's runtime type id, or zero for a null Database.
+ */
 uint64_t Database_kind(const Database *self) {
     if (self == nullptr)
         return 0u;
     return Memory_type((void*) self);
 }
 
+/**
+ * Reports whether a non-null Database allocation has the requested type id.
+ */
 bool Database_check(const Database *self, uint64_t typeId) {
     if (self == nullptr)
         return false;
     return Memory_type((void*) self) == typeId;
 }
 
+/**
+ * Registers a borrowed reflection schema under its folded name and creates an
+ * empty row list. Returns its index, or -1 with a recorded/reported error.
+ */
 int32_t Database_define(Database *self, Struct *schema) {
     if (self == nullptr || schema == nullptr) {
         recordError(self, DATABASE_INVALID, "define: null database or schema");
@@ -245,6 +278,10 @@ int32_t Database_define(Database *self, Struct *schema) {
     return (int32_t) (ChunkedList_size((*self).entities) - 1u);
 }
 
+/**
+ * Resolves a valid entity name to its registry index, or returns -1 when the
+ * Database/name is null, malformed, or not registered.
+ */
 int32_t Database_entityIndex(const Database *self, const char *entity) {
     if (self == nullptr || entity == nullptr)
         return -1;
@@ -254,12 +291,20 @@ int32_t Database_entityIndex(const Database *self, const char *entity) {
     return findEntity(self, folded);
 }
 
+/**
+ * Returns the number of registered entities, or zero for an unavailable
+ * registry.
+ */
 uint32_t Database_entityCount(const Database *self) {
     if (self == nullptr || (*self).entities == nullptr)
         return 0u;
     return ChunkedList_size((*self).entities);
 }
 
+/**
+ * Returns the borrowed schema for a registered entity, or nullptr if lookup
+ * fails.
+ */
 Struct *Database_schema(const Database *self, const char *entity) {
     int32_t index = Database_entityIndex(self, entity);
     if (index < 0)
@@ -268,6 +313,10 @@ Struct *Database_schema(const Database *self, const char *entity) {
     return row ? (*row).schema : nullptr;
 }
 
+/**
+ * Binds a caller-owned row pointer to a live entity and returns its row index.
+ * Rejections leave the row unbound and return -1 with a recorded error.
+ */
 int32_t Database_insert(Database *self, const char *entity, void *row) {
     if (self == nullptr || entity == nullptr || row == nullptr) {
         recordError(self, DATABASE_INVALID, "insert: null argument");
@@ -308,6 +357,10 @@ int32_t Database_insert(Database *self, const char *entity, void *row) {
     return (int32_t) (ChunkedList_size((*target).rows) - 1u);
 }
 
+/**
+ * Returns the borrowed row pointer at an entity's index, or nullptr when the
+ * entity, row list, index, or stored pointer is unavailable.
+ */
 void *Database_row(const Database *self, const char *entity, uint32_t index) {
     int32_t e = Database_entityIndex(self, entity);
     if (e < 0)
@@ -319,6 +372,9 @@ void *Database_row(const Database *self, const char *entity, uint32_t index) {
     return slot ? *((void**) slot) : nullptr;
 }
 
+/**
+ * Returns the number of rows bound to an entity, or zero when lookup fails.
+ */
 uint32_t Database_count(const Database *self, const char *entity) {
     int32_t e = Database_entityIndex(self, entity);
     if (e < 0)
@@ -327,6 +383,10 @@ uint32_t Database_count(const Database *self, const char *entity) {
     return target && (*target).rows ? ChunkedList_size((*target).rows) : 0u;
 }
 
+/**
+ * Creates a cursor over an entity's current row list; absent/unavailable
+ * entities return nullptr and update the Database error state.
+ */
 DatabaseResult *Database_select(Database *self, const char *entity) {
     int32_t e = Database_entityIndex(self, entity);
     if (e < 0) {
@@ -346,10 +406,17 @@ DatabaseResult *Database_select(Database *self, const char *entity) {
 
 // DIAGNOSTICS
 
+/**
+ * Returns the latest Database error code, using DATABASE_INVALID for nullptr.
+ */
 int32_t Database_errorCode(const Database *self) {
     return self ? (*self).lastCode : DATABASE_INVALID;
 }
 
+/**
+ * Copies the last error text into a bounded destination and returns copied
+ * bytes, or -1 for invalid arguments; truncation is NUL-terminated.
+ */
 int Database_lastError(const Database *self, char *out, size_t outCap) {
     if (self == nullptr || out == nullptr || outCap == 0u)
         return -1;
@@ -360,6 +427,10 @@ int Database_lastError(const Database *self, char *out, size_t outCap) {
     return (int) copy;
 }
 
+/**
+ * Maps a Database error code to static human-readable text, including unknown
+ * values.
+ */
 const char *Database_errorText(int32_t code) {
     switch (code) {
         case DATABASE_OK:        return "ok";
@@ -400,7 +471,10 @@ typedef struct VexDbEntity {
 } VexDbEntity;
 _Static_assert(sizeof(VexDbEntity) == 32u, "VexDbEntity must stay 32 Bytes");
 
-// Running IEEE CRC32 (reflected). Finalise with ~crc.
+/**
+ * Updates a reflected IEEE CRC32 accumulator over the supplied bytes; callers
+ * finalize the checksum by complementing the returned accumulator.
+ */
 static uint32_t crc32Update(uint32_t crc, const uint8_t *data, size_t length) {
     for (size_t i = 0u; i < length; i++) {
         crc ^= data[i];
@@ -410,6 +484,10 @@ static uint32_t crc32Update(uint32_t crc, const uint8_t *data, size_t length) {
     return crc;
 }
 
+/**
+ * Writes the full byte span, retrying short writes; returns false on a
+ * non-progressing or failed write.
+ */
 static bool writeAll(File *file, const void *src, size_t length) {
     const uint8_t *p = (const uint8_t*) src;
     size_t done = 0u;
@@ -422,6 +500,10 @@ static bool writeAll(File *file, const void *src, size_t length) {
     return true;
 }
 
+/**
+ * Reads the requested byte span, retrying short reads; returns false on EOF or
+ * a failed read before completion.
+ */
 static bool readAll(File *file, void *dest, size_t length) {
     uint8_t *p = (uint8_t*) dest;
     size_t done = 0u;
@@ -480,6 +562,10 @@ static int32_t loadPayload(Database *self, const uint8_t *payload, size_t length
     return offset == length ? DATABASE_OK : DATABASE_INVALID;
 }
 
+/**
+ * Writes a CRC-protected native-endian snapshot directly to the requested
+ * path; a write failure returns an error and may leave a partial file.
+ */
 int32_t Database_save(Database *self, const char *path) {
     if (self == nullptr || path == nullptr) {
         recordError(self, DATABASE_INVALID, "save: null database or path");
@@ -546,6 +632,10 @@ int32_t Database_save(Database *self, const char *path) {
     return DATABASE_OK;
 }
 
+/**
+ * Validates a snapshot header, payload checksum, registered schemas, and empty
+ * target entities before loading rows as Database-owned arena allocations.
+ */
 int32_t Database_load(Database *self, const char *path) {
     if (self == nullptr || path == nullptr) {
         recordError(self, DATABASE_INVALID, "load: null database or path");
@@ -626,6 +716,10 @@ int32_t Database_load(Database *self, const char *path) {
 
 // STRING PROJECTIONS (the toString Law)
 
+/**
+ * Formats a bounded value summary of the Database; null self formats as
+ * "nullptr" and reports truncation through outTruncated when supplied.
+ */
 void Database_toString(const Database *self, char *dest, size_t cap, bool *outTruncated) {
     if (outTruncated)
         *outTruncated = false;
@@ -642,6 +736,10 @@ void Database_toString(const Database *self, char *dest, size_t cap, bool *outTr
     }
 }
 
+/**
+ * Formats the Database's own fields into a bounded structure summary; null
+ * self formats as "nullptr" and reports truncation when possible.
+ */
 void Database_toStringStruct(const Database *self, char *dest, size_t cap, bool *outTruncated) {
     if (outTruncated)
         *outTruncated = false;
