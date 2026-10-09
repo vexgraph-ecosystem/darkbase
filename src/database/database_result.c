@@ -55,6 +55,10 @@
 
 // CONSTRUCTORS
 
+/**
+ * Allocates an empty cursor with no row source; returns nullptr if allocation
+ * fails.
+ */
 DatabaseResult *DatabaseResult_0(void) {
     DatabaseResult *self = (DatabaseResult*) Memory_alloc(TYPE_DB_DATABASE_RESULT_SINGLETON, sizeof(DatabaseResult));
     if (self == nullptr)
@@ -65,6 +69,10 @@ DatabaseResult *DatabaseResult_0(void) {
     return self;
 }
 
+/**
+ * Allocates a cursor borrowing the source row list and snapshots its current
+ * length; a null source is rejected and returns nullptr.
+ */
 DatabaseResult *DatabaseResult_1(ChunkedList *source) {
     if (source == nullptr) {
         THROW("DatabaseResult_1: null row source");
@@ -78,6 +86,9 @@ DatabaseResult *DatabaseResult_1(ChunkedList *source) {
     return self;
 }
 
+/**
+ * Releases the arena-allocated cursor without freeing its borrowed row list.
+ */
 void DatabaseResult_free(DatabaseResult *self) {
     if (self != nullptr)
         Memory_free(self);
@@ -85,18 +96,29 @@ void DatabaseResult_free(DatabaseResult *self) {
 
 // CORE FUNCTIONS
 
+/**
+ * Returns the allocation's runtime type id, or zero for a null result.
+ */
 uint64_t DatabaseResult_kind(const DatabaseResult *self) {
     if (self == nullptr)
         return 0u;
     return Memory_type((void*) self);
 }
 
+/**
+ * Reports whether a non-null result allocation has the requested type id.
+ */
 bool DatabaseResult_check(const DatabaseResult *self, uint64_t typeId) {
     if (self == nullptr)
         return false;
     return Memory_type((void*) self) == typeId;
 }
 
+/**
+ * Writes the next snapshotted row pointer to outRow and advances on success;
+ * returns false at exhaustion or for invalid/unavailable arguments without
+ * changing the cursor or destination.
+ */
 bool DatabaseResult_next(DatabaseResult *self, void **outRow) {
     if (self == nullptr || outRow == nullptr || (*self).rows == nullptr)
         return false;
@@ -111,14 +133,23 @@ bool DatabaseResult_next(DatabaseResult *self, void **outRow) {
     return true;
 }
 
+/**
+ * Returns the row count captured at construction, or zero for nullptr.
+ */
 uint32_t DatabaseResult_count(const DatabaseResult *self) {
     return self ? (*self).count : 0u;
 }
 
+/**
+ * Returns the index of the next row to be read, or zero for nullptr.
+ */
 uint32_t DatabaseResult_position(const DatabaseResult *self) {
     return self ? (*self).cursor : 0u;
 }
 
+/**
+ * Resets a non-null cursor to the first row; a null cursor is ignored.
+ */
 void DatabaseResult_rewind(DatabaseResult *self) {
     if (self != nullptr)
         (*self).cursor = 0u;
@@ -126,6 +157,10 @@ void DatabaseResult_rewind(DatabaseResult *self) {
 
 // STRING PROJECTIONS (the toString Law)
 
+/**
+ * Formats a bounded cursor-position summary; null self formats as "nullptr"
+ * and truncation is reported through outTruncated when supplied.
+ */
 void DatabaseResult_toString(const DatabaseResult *self, char *dest, size_t cap, bool *outTruncated) {
     if (outTruncated)
         *outTruncated = false;
@@ -142,6 +177,10 @@ void DatabaseResult_toString(const DatabaseResult *self, char *dest, size_t cap,
     }
 }
 
+/**
+ * Formats the cursor's own fields into a bounded structure summary; null self
+ * formats as "nullptr" and truncation is reported when possible.
+ */
 void DatabaseResult_toStringStruct(const DatabaseResult *self, char *dest, size_t cap, bool *outTruncated) {
     if (outTruncated)
         *outTruncated = false;
