@@ -1,18 +1,7 @@
 # darkbase — R3 native vex database store
 
-## CLion: CMake is IDE metadata only
-
-Open this repository root as a CMake project. `CMakeLists.txt` gives CLion C23
-source targets, include paths and compiler flags for navigation, diagnostics and
-inlay hints; its targets are excluded from the default build. It is not the
-release build: no dependency is downloaded and no Cargo invocation, linking or
-application runner is wired into it. Optional `VEXSPOKE_SOURCE_DIR` and
-`RELATIONAL_ENGINE_SOURCE_DIR` point at local dependency `src` checkouts for the
-remaining header references; missing headers remain real errors, never fake
-declarations. IDE appearance is user-verified.
-
-The actual build entry is [b](https://github.com/vex-graph/b);
-`./tools/b build darkbase` links this repository's classes.
+Build with [b](https://github.com/vex-graph/b):
+`./tools/b build darkbase` from the workspace root.
 
 ## Current State
 
